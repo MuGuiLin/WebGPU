@@ -17,6 +17,8 @@
 
 **🏡WGSL 语言规范：**[https://gpuweb.github.io/gpuweb/wgsl](https://gpuweb.github.io/gpuweb/wgsl)
 
+![alain.xyz/blog/raw-webgpu/assets/cover.svg](https://alain.xyz/blog/raw-webgpu/assets/cover.svg)
+
 
 
 ## 什么是Web GPU?
