@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU入门实例</title>
+    <style>
+        h1 {
+            text-align: center;
+        }
+
+        canvas {
+            display: block;
+            margin: 50px auto;
+            border: 1px solid black;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>WebGPU入门实例</h1>
+    <hr>
+
+    <canvas id="gpuCanvas" width="800" height="600"></canvas>
+
+    <!-- 注：为脚本type在标记为 "module" 类型后，就可以使用顶层 awaits，这对 WebGPU 初始化非常有用！ -->
+    <script type="module">
+
+        async function initWebGPU() {
+            if (!navigator.gpu) {
+                return console.error("WebGPU不被支持，请使用支持WebGPU的浏览器。");
+            }
+
+            const adapter = await navigator.gpu.requestAdapter();
+            if (!adapter) {
+                return console.error("无法获取GPU适配器。");
+            }
+            console.log("GPU适配器已获取：", adapter);
+
+            const device = await adapter.requestDevice();
+
+            const canvas = document.querySelector("#gpuCanvas");
+            const context = canvas.getContext("webgpu");
+
+            const format = navigator.gpu.getPreferredCanvasFormat();
+            context.configure({
+                device: device,
+                format: format,
+                alphaMode: 'premultiplied',
+            });
+
+            // 创建统一缓冲区 (角度 + 颜色信息)
+            const uniformBufferSize = 4 * 4 * 2; // 8个32位浮点数
+            const uniformBuffer = device.createBuffer({
+                size: uniformBufferSize,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+
+            // 绑定组布局
+            const bindGroupLayout = device.createBindGroupLayout({
+                entries: [{
+                    binding: 0,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    buffer: { type: 'uniform' },
+                }]
+            });
+
+            // 管线布局
+            const pipelineLayout = device.createPipelineLayout({
+                bindGroupLayouts: [bindGroupLayout]
+            });
+
+            // 创建渲染管线
+            const pipeline = device.createRenderPipeline({
+                layout: pipelineLayout,
+                vertex: {
+                    module: device.createShaderModule({
+                        code: `
+                struct Uniforms {
+                    angle: f32,
+                    padding1: f32,
+                    padding2: f32,
+                    padding3: f32,
+                    colorR: f32,
+                    colorG: f32,
+                    colorB: f32,
+                    padding4: f32,
+                };
+                
+                @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+                
+                @vertex
+                fn main(@builtin(vertex_index) VertexIndex : u32) -> @builtin(position) vec4<f32> {
+                    var pos = array<vec2<f32>, 3>(
+                        vec2<f32>(0.0, 0.5),
+                        vec2<f32>(-0.5, -0.5),
+                        vec2<f32>(0.5, -0.5)
+                    );
+                    
+                    // 计算旋转矩阵
+                    let cos_angle = cos(uniforms.angle);
+                    let sin_angle = sin(uniforms.angle);
+                    let rotation_matrix = mat2x2<f32>(
+                        // 顺时针旋转
+                        // cos_angle, -sin_angle,
+                        // sin_angle, cos_angle
+
+                        // 逆时针旋转
+                        // cos_angle, sin_angle,
+                        // -sin_angle, cos_angle
+
+                        // 交叉旋转
+                        cos_angle, sin_angle,
+                        sin_angle, cos_angle
+                    );
+                    
+                    let rotated_pos = rotation_matrix * pos[VertexIndex];
+                    
+                    return vec4<f32>(rotated_pos, 0.0, 1.0);
+                }
+                `
+                    }),
+                    entryPoint: "main",
+                },
+                fragment: {
+                    module: device.createShaderModule({
+                        code: `
+                struct Uniforms {
+                    angle: f32,
+                    padding1: f32,
+                    padding2: f32,
+                    padding3: f32,
+                    colorR: f32,
+                    colorG: f32,
+                    colorB: f32,
+                    padding4: f32,
+                };
+                
+                @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+                
+                @fragment
+                fn main() -> @location(0) vec4<f32> {
+                    return vec4<f32>(uniforms.colorR, uniforms.colorG, uniforms.colorB, 1.0);
+                }
+                `
+                    }),
+                    entryPoint: "main",
+                    targets: [{ format: format }],
+                },
+                primitive: {
+                    topology: 'triangle-list',
+                },
+            });
+
+            // 创建绑定组
+            const bindGroup = device.createBindGroup({
+                layout: bindGroupLayout,
+                entries: [{
+                    binding: 0,
+                    resource: { buffer: uniformBuffer }
+                }]
+            });
+
+            // 生成随机颜色函数
+            function getRandomColor() {
+                return [
+                    Math.random(), // R
+                    Math.random(), // G
+                    Math.random()  // B
+                ];
+            }
+
+            // 当前颜色值
+            let currentColor = getRandomColor();
+
+            // 动画函数
+            // 高级渐变动画函数
+            function animate() {
+                // 计算当前旋转角度
+                const time = performance.now() * 0.001;
+                const angle = time * 0.5; // 旋转速度
+
+                // HSL到RGB转换函数
+                function hslToRgb(h, s, l) {
+                    let r, g, b;
+
+                    if (s === 0) {
+                        r = g = b = l; // achromatic
+                    } else {
+                        const hue2rgb = (p, q, t) => {
+                            if (t < 0) t += 1;
+                            if (t > 1) t -= 1;
+                            if (t < 1 / 6) return p + (q - p) * 6 * t;
+                            if (t < 1 / 2) return q;
+                            if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                            return p;
+                        };
+
+                        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                        const p = 2 * l - q;
+                        r = hue2rgb(p, q, h + 1 / 3);
+                        g = hue2rgb(p, q, h);
+                        b = hue2rgb(p, q, h - 1 / 3);
+                    }
+
+                    return [r, g, b];
+                }
+
+                // 使用HSL系统创建平滑的颜色变化
+                const hue = (time * 0.3) % 1; // 色相随时间变化
+                const [r, g, b] = hslToRgb(hue, 1.0, 0.5); // 饱和度1.0，亮度0.5
+
+                // 准备uniform数据
+                const uniformData = new Float32Array([
+                    angle, 0, 0, 0,           // 旋转角度和填充
+                    r,                        // R
+                    g,                        // G
+                    b,                        // B
+                    0                         // 填充
+                ]);
+
+                // 更新统一缓冲区
+                device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+
+                // 渲染场景
+                const commandEncoder = device.createCommandEncoder();
+                const textureView = context.getCurrentTexture().createView();
+                const renderPassDescriptor = {
+                    colorAttachments: [{
+                        view: textureView,
+                        loadOp: 'clear',
+                        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                        storeOp: 'store',
+                    }],
+                };
+                const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+                passEncoder.setPipeline(pipeline);
+                passEncoder.setBindGroup(0, bindGroup);
+                passEncoder.draw(3, 1, 0, 0);
+                passEncoder.end();
+                device.queue.submit([commandEncoder.finish()]);
+
+                requestAnimationFrame(animate);
+            }
+
+
+            // 启动动画
+            animate();
+        };
+
+        // 初始化WebGPU
+        (async () => {
+            await initWebGPU();
+        })();
+    </script>
+</body>
+
+</html>

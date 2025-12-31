@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU入门实例</title>
+    <style>
+        h1 {
+            text-align: center;
+        }
+
+        canvas {
+            display: block;
+            margin: 50px auto;
+            border: 1px solid black;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>WebGPU入门实例</h1>
+    <hr>
+
+    <canvas id="gpuCanvas" width="800" height="600"></canvas>
+
+    <!-- 注：为脚本type在标记为 "module" 类型后，就可以使用顶层 awaits，这对 WebGPU 初始化非常有用！ -->
+    <script type="module">
+        async function initWebGPU() {
+            // 检查浏览器是否支持WebGPU（理想情况下，如果页面 GPU 不可用，您需要让用户回退到不使用 WebGPU 的模式，从而通知用户。（也许它可以改用 WebGL？）不过，在此 Codelab 中，您只是抛出了一个错误来阻止代码进一步执行。）
+            if (!navigator.gpu) {
+                return console.error("WebGPU不被支持，请使用支持WebGPU的浏览器。");;
+            }
+
+            // 1、获取GPU适配器和设备（获取适配器，请使用 navigator.gpu.requestAdapter() 方法。它会返回 promise，因此用 await 调用它最为方便）
+            const adapter = await navigator.gpu.requestAdapter();
+            if (!adapter) {
+                return console.error("无法获取GPU适配器。");
+            }
+            console.log("GPU适配器已获取：", adapter);
+
+            // 2、有了适配器后，最后一步就是开始请求 GPUDevice，然后才能开始使用 GPU。设备是与 GPU 进行交互的主要界面，adapter.requestDevice()方法也会返回一个 promise。
+            const device = await adapter.requestDevice();
+
+            // 3、获取canvas元素并配置上下文
+            const canvas = document.querySelector("#gpuCanvas");
+
+            // 4、获取WebGPU上下文（通过调用 canvas.getContext("webgpu") 从画布请求 GPUCanvasContext。【这与用于分别初始化 2d 和 webgl 上下文类型且用于初始化 Canvas 2D 或 WebGL 上下文的调用相同】然后，它必须使用 configure() 方法将返回的 context 与设备相关联）
+            const context = canvas.getContext("webgpu");
+
+            const format = navigator.gpu.getPreferredCanvasFormat();
+            context.configure({
+                device: device, // 关联设备
+                format: format, // 画布格式
+                alphaMode: 'premultiplied', // 透明度模式 (可选，默认值为 'premultiplied'可透明，opaque 表示不透明)
+            });
+
+            // 创建渲染管线
+            const pipeline = device.createRenderPipeline({
+                layout: 'auto', // 自动布局
+                // 顶点着色器
+                vertex: {
+                    module: device.createShaderModule({
+                        code: `
+                        @vertex
+                        fn main(@builtin(vertex_index) VertexIndex : u32) -> @builtin(position) vec4<f32> {
+                            var pos = array<vec2<f32>, 3>(
+                                vec2<f32>(0.0, 0.5),
+                                vec2<f32>(-0.5, -0.5),
+                                vec2<f32>(0.5, -0.5)
+                            );
+                            return vec4<f32>(pos[VertexIndex], 0.0, 1.0);
+                        }
+                        `
+                    }),
+                    entryPoint: "main",
+                },
+                // 片段着色器
+                fragment: {
+                    module: device.createShaderModule({
+                        code: `
+                        @fragment
+                        fn main() -> @location(0) vec4<f32> {
+                            // 返回绿色颜色    红， 绿，  蓝，透明度
+                            return vec4<f32>(0.0, 0.0, 1.0, 0.8); // 绿色
+                        }
+                        `
+                    }),
+                    entryPoint: "main",
+                    targets: [{ format: format }],
+                },
+                // 图元类型
+                primitive: {
+                    topology: 'triangle-list', // 'triangle-list'是三角形列表, 其他选项还有 'line-list'是线列表, 'point-list'是点列表等
+                },
+            });
+
+            // 创建命令编码器和渲染通道
+            const commandEncoder = device.createCommandEncoder();
+            const textureView = context.getCurrentTexture().createView();
+            const renderPassDescriptor = {
+                colorAttachments: [{
+                    view: textureView,
+                    loadOp: 'clear',
+                    clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                    storeOp: 'store',
+                }],
+            };
+            // 开始渲染通道
+            const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+            //进行通道和管线的连接
+            passEncoder.setPipeline(pipeline);
+            // 执行绘制
+            passEncoder.draw(3, 1, 0, 0);
+            // 结束渲染通道
+            passEncoder.end();
+            // 提交命令（结束指令编码）
+            device.queue.submit([commandEncoder.finish()]);
+        }
+
+        // 初始化WebGPU
+        (async () => {
+            await initWebGPU();
+        })();
+    </script>
+</body>
+
+</html>
