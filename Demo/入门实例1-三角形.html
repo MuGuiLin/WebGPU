@@ -39,7 +39,7 @@
             }
             console.log("GPU适配器已获取：", adapter);
 
-            // 2、有了适配器后，最后一步就是开始请求 GPUDevice，然后才能开始使用 GPU。设备是与 GPU 进行交互的主要界面，adapter.requestDevice()方法也会返回一个 promise。
+            // 2、有了适配器后，最后一步就是开始请求 GPUDevice（实例化对象，设备可以创建缓存、纹理、渲染管线、着色器模块），然后才能开始使用 GPU。设备是与 GPU 进行交互的主要界面，adapter.requestDevice()方法也会返回一个 promise。
             const device = await adapter.requestDevice();
 
             // 3、获取canvas元素并配置上下文
@@ -73,7 +73,7 @@
                         }
                         `
                     }),
-                    entryPoint: "main",
+                    entryPoint: "main", //入口函数
                 },
                 // 片段着色器
                 fragment: {
@@ -86,8 +86,10 @@
                         }
                         `
                     }),
-                    entryPoint: "main",
-                    targets: [{ format: format }],
+                    entryPoint: "main", //入口函数
+                    targets: [{
+                        format: format  //即上文的最终渲染色彩格式
+                    }],
                 },
                 // 图元类型
                 primitive: {
@@ -96,13 +98,14 @@
             });
 
             // 创建命令编码器和渲染通道
-            const commandEncoder = device.createCommandEncoder();
-            const textureView = context.getCurrentTexture().createView();
+            const commandEncoder = device.createCommandEncoder(); // 创建指令编码器CommandEncoder
+            const textureView = context.getCurrentTexture().createView(); // 获取当前纹理视图
             const renderPassDescriptor = {
                 colorAttachments: [{
                     view: textureView,
                     loadOp: 'clear',
-                    clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                    // loadValue: { r: 0.5, g: 0.5, b: 0.8, a: 1.0 }, // 背景色
+                    clearValue: { r: 0.5, g: 0.5, b: 0.8, a: 0.8 }, // 背景色
                     storeOp: 'store',
                 }],
             };
